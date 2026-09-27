@@ -1,8 +1,11 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { DragDropContext } from '@hello-pangea/dnd';
 import Column from './Column';
 import TaskModal from '../TaskModal/TaskModal';
+import SearchBar from './SearchBar';
+import EmptyBoard from './EmptyBoard';
 import useTasks from '../../hooks/useTasks';
+import useKeyboardShortcut from '../../hooks/useKeyboardShortcut';
 import { HiOutlinePlus } from 'react-icons/hi';
 
 const COLUMN_CONFIG = [
@@ -12,32 +15,32 @@ const COLUMN_CONFIG = [
 ];
 
 export default function KanbanBoard() {
-  const { columns, loading, createTask, updateTask, deleteTask, reorderTasks, addSnippet, removeSnippet } = useTasks();
+  const { tasks, columns, loading, createTask, updateTask, deleteTask, reorderTasks, addSnippet, removeSnippet } = useTasks();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [defaultStatus, setDefaultStatus] = useState('todo');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Keyboard shortcut: Press 'c' to create a new task
+  useKeyboardShortcut('c', () => openCreateModal(), { enabled: !modalOpen });
 
   const handleDragEnd = (result) => {
     const { source, destination, draggableId } = result;
     if (!destination) return;
     if (source.droppableId === destination.droppableId && source.index === destination.index) return;
 
+    // ... (rest of drag logic remains the same, we'll keep it simple for now)
     const sourceCol = source.droppableId;
     const destCol = destination.droppableId;
 
-    // Build new column arrays
     const allColumns = { ...columns };
     const sourceItems = [...allColumns[sourceCol]];
     const destItems = sourceCol === destCol ? sourceItems : [...allColumns[destCol]];
 
-    // Remove from source
     const [movedTask] = sourceItems.splice(source.index, 1);
-
-    // Insert into destination
     const updatedTask = { ...movedTask, status: destCol };
     destItems.splice(destination.index, 0, updatedTask);
 
-    // Build reorder payload for affected columns
     const payload = [];
     const addColumn = (items, status) => {
       items.forEach((task, index) => {
@@ -80,6 +83,22 @@ export default function KanbanBoard() {
     setEditingTask(null);
   };
 
+  // Filter tasks based on search query
+  const filteredColumns = useMemo(() => {
+    if (!searchQuery) return columns;
+    const lowerQuery = searchQuery.toLowerCase();
+    const filterFn = (t) => 
+      t.title.toLowerCase().includes(lowerQuery) || 
+      (t.description && t.description.toLowerCase().includes(lowerQuery));
+
+    return {
+      'todo': (columns['todo'] || []).filter(filterFn),
+      'in-progress': (columns['in-progress'] || []).filter(filterFn),
+      'done': (columns['done'] || []).filter(filterFn),
+    };
+  }, [columns, searchQuery]);
+
+
   if (loading) {
     return (
       <div className="board-loader">
@@ -95,6 +114,23 @@ export default function KanbanBoard() {
     );
   }
 
+  if (tasks.length === 0 && !searchQuery) {
+    return (
+      <>
+        <EmptyBoard onCreateTask={() => openCreateModal()} />
+        {modalOpen && (
+          <TaskModal
+            task={null}
+            onSave={handleSave}
+            onClose={() => setModalOpen(false)}
+            onAddSnippet={addSnippet}
+            onRemoveSnippet={removeSnippet}
+          />
+        )}
+      </>
+    );
+  }
+
   return (
     <>
       <div className="board-header">
@@ -102,10 +138,13 @@ export default function KanbanBoard() {
           <h2 className="board-title">Your Workspace</h2>
           <p className="board-subtitle">Drag tasks between columns to update their status</p>
         </div>
-        <button className="btn btn-primary" onClick={() => openCreateModal()}>
-          <HiOutlinePlus size={18} />
-          New Task
-        </button>
+        <div className="board-actions" style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+            <SearchBar onSearch={setSearchQuery} />
+            <button className="btn btn-primary" onClick={() => openCreateModal()}>
+            <HiOutlinePlus size={18} />
+            New Task
+            </button>
+        </div>
       </div>
 
       <DragDropContext onDragEnd={handleDragEnd}>
@@ -116,7 +155,7 @@ export default function KanbanBoard() {
               columnId={col.id}
               title={col.title}
               emoji={col.emoji}
-              tasks={columns[col.id] || []}
+              tasks={filteredColumns[col.id] || []}
               onTaskClick={openEditModal}
               onAddClick={() => openCreateModal(col.id)}
             />
